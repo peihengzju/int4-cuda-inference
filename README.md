@@ -95,6 +95,21 @@ python benchmarks/benchmark_lsq_fc.py \
 
 Outputs include latency comparison and numerical error metrics (for example `max_abs_err` vs LSQ baseline layer output).
 
+## Benchmark Results
+
+Measured on 2026-03-06 with `torch 2.2.2+cu121`, CUDA toolkit 12.1, and gcc-12.
+
+Synthetic GEMM (`m=n=k=1024`, 200 iterations):
+- FP16 `torch.matmul`: `0.093 ms`
+- INT8 custom GEMM: `0.826 ms`
+- INT4 storage + INT8 compute GEMM: `0.802 ms`
+- Correctness: INT8=`True`, INT4=`True`
+
+LSQ `fc` layer benchmark (`w_bits=4`, `a_bits=4`, `--disable-first-last-8bit`):
+- Batch 256: LSQ `0.462 ms` vs INT4+INT8 `0.203 ms` (`2.28x` speedup), `max_abs_err=4.222132`
+- Batch 32: LSQ `0.469 ms` vs INT4+INT8 `0.227 ms` (`2.07x` speedup), `max_abs_err=3.604327`
+- Batch 1: LSQ `0.449 ms` vs INT4+INT8 `0.201 ms` (`2.23x` speedup), `max_abs_err=2.704684`
+
 ## Model and Checkpoint Policy
 
 - Model weights/checkpoints are intentionally not included in this repository.
