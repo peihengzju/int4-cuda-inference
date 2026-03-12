@@ -2,47 +2,22 @@
 
 Profiling-driven low-bit inference project built with PyTorch C++/CUDA extensions.
 
-This repository focuses on a practical systems question: after training a quantized CNN, what is required to turn that model into a hardware-aware inference path rather than just a quantized model evaluated through standard PyTorch execution?
+This repository is built on top of an LSQ ImageNet reproduction repository:
+https://github.com/peihengzju/LSQ-ImageNet-Reproduction
 
-## Project Summary
+## TL;DR
 
-The current implementation is built around LSQ-trained ImageNet checkpoints and extends them into a custom low-bit CUDA inference path:
+This repository asks a systems question: why do low-bit quantized models often remain slower than native FP inference? Starting from an LSQ ImageNet reproduction, it builds a custom CUDA inference backend, converts LSQ checkpoints into custom operators, and uses profiler-driven optimization to reduce the gap between quantized execution and native cuDNN inference.
 
-- INT4 packed weight storage
-- INT8 compute path based on custom PyTorch CUDA extensions
-- checkpoint adapter for converting LSQ quantized layers into custom operators
-- full-model ImageNet evaluation for native LSQ vs converted execution
-- fixed-batch profiling workflow for identifying real runtime bottlenecks
+## Key Contributions
 
-The emphasis is not only on numerical correctness, but on analyzing why low-bit models are often still slower than native execution and then reducing that gap with targeted kernel and lowering optimizations.
+- Built a custom PyTorch CUDA extension for INT4-weight / INT8-activation inference
+- Implemented INT4 packed weights and custom GEMM / fused execution paths
+- Integrated LSQ training checkpoints into a custom inference backend
+- Built a fixed-batch profiling pipeline for identifying runtime bottlenecks
+- Reduced converted-path profiling runtime from `15.44s` to `8.15s` through targeted kernel and lowering optimization
 
-## Why This Project Matters
-
-Low-bit quantization does not automatically imply low-bit efficiency.
-
-In practice, quantized models are often bottlenecked by:
-
-- explicit lowering (`im2col` / `unfold`)
-- temporary tensor allocation
-- dtype conversion
-- repeated quantize/dequantize work
-- fragmented CUDA kernel launches
-
-This repository is an attempt to bridge that gap by moving the bottlenecks into custom CUDA code rather than stopping at algorithm-level quantization.
-
-## Key Technical Work
-
-- Built a custom PyTorch CUDA extension for low-bit inference
-- Implemented INT4 packed weights with on-the-fly unpacking
-- Implemented INT4-weight / INT8-activation GEMM and fused execution paths
-- Added specialized fused paths for dominant convolution cases
-- Integrated external LSQ checkpoints into a custom inference backend
-- Added full-model ImageNet evaluation and fixed-batch profiling scripts
-- Used profiler output to drive successive kernel/lowering revisions
-
-## Current Best Retained Results
-
-The table below reflects the retained optimization path. A later `full-cover` experiment that converted `conv1` and `fc` was evaluated and then rolled back because it regressed runtime; it is intentionally excluded from the main results here.
+## Results
 
 | Configuration | Top-1 | Top-5 | Time |
 |---|---:|---:|---:|
@@ -61,52 +36,9 @@ Fixed-batch converted profiling progression:
 | After fused `3x3` conv path | 8.22s |
 | Current retained converted profile (`fusedconv_v2`) | 8.15s |
 
-Takeaway:
+The converted path preserves full-model accuracy and materially improves over the initial converted implementation, but it still does not beat native cuDNN-backed execution end to end. The remaining gap is primarily a systems problem rather than a quantization-accuracy problem.
 
-- the converted path preserves full-model accuracy
-- the retained CUDA work materially reduces runtime relative to the initial converted implementation
-- the project still does not beat native cuDNN-backed execution end to end
-- profiling shows that the remaining gap is primarily a systems problem, not a quantization-accuracy problem
-
-## What Is Implemented
-
-Implemented and retained:
-
-- LSQ checkpoint loading and reconstruction
-- conversion of eligible middle quantized layers into custom operators
-- packed INT4 weight path
-- custom INT4-weight / INT8-activation GEMM
-- specialized `3x3, stride=1, padding=1` path
-- specialized `1x1` path
-- fused low-bit linear path
-- ImageNet evaluation scripts
-- profiler-driven analysis workflow
-
-Not implemented as a final production solution:
-
-- training inside this repository
-- end-to-end integer activation pipeline across the whole model
-- implicit-GEMM-style final convolution backend
-- best-possible kernel tuning comparable to cuDNN or production inference libraries
-
-## Scope
-
-This repository should be viewed as a systems prototype for quantized CNN inference rather than a general-purpose deployment framework.
-
-What is general in the current codebase:
-
-- INT4 packed weight storage
-- custom CUDA kernels and PyTorch extension bindings
-- fused low-bit linear and selected convolution paths
-- profiler-driven workflow for identifying end-to-end bottlenecks
-
-What is still LSQ-specific in the current codebase:
-
-- checkpoint import and model reconstruction flow
-- evaluation scripts and naming
-- current end-to-end validation on LSQ-trained PreAct-ResNet18/ImageNet
-
-## Repository Layout
+## Repository Structure
 
 - [`csrc/int4_int8_kernels.cu`](/home/yph3738/projects/cuda_optimization/csrc/int4_int8_kernels.cu): CUDA kernels
 - [`csrc/int4_int8_ext.cpp`](/home/yph3738/projects/cuda_optimization/csrc/int4_int8_ext.cpp): PyTorch extension bindings
@@ -133,25 +65,16 @@ Validated setup:
 
 The CUDA toolkit version must match the PyTorch CUDA build.
 
-## Setup
+## Installation
 
 ```bash
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+pip install -e .
 ```
 
-Build the extension:
-
-```bash
-CUDA_HOME=/usr/local/cuda-12.1 \
-CUDACXX=/usr/local/cuda-12.1/bin/nvcc \
-CC=/usr/bin/gcc-12 \
-CXX=/usr/bin/g++-12 \
-CUDAHOSTCXX=/usr/bin/g++-12 \
-FORCE_CUDA=1 \
-pip install -e . --no-build-isolation --force-reinstall
-```
+If the CUDA extension build is not picked up automatically in your environment, reinstall with the usual CUDA compiler environment variables set.
 
 Sanity check:
 
@@ -159,7 +82,7 @@ Sanity check:
 python -c "import torch; import int4_int8_ext; print('extension ok')"
 ```
 
-## Reproducing the Main Experiments
+## Reproducing Experiments
 
 ### 1. FP Native Evaluation
 
@@ -217,37 +140,13 @@ python benchmarks/benchmark_lsq_fc.py \
   --iters 200
 ```
 
-## Important Notes
+## Limitations
 
 - This repository does not distribute pretrained checkpoints.
 - LSQ training is maintained in the external LSQ repository used by the experiments.
-- The best retained performance path in this repository intentionally keeps `conv1` and `fc` on the native path because the attempted full-coverage conversion regressed runtime.
-- The current implementation should be viewed as a systems prototype, not as a production-ready low-bit inference framework.
-
-## Known Limitations
-
+- The current implementation is a systems prototype, not a production-ready inference framework.
 - end-to-end runtime is still slower than native cuDNN-backed inference
 - the best-performing retained path converts 19 layers rather than all 21 quantized layers
 - residual front-end quantization work still exists
 - the current convolution backend is specialized but not yet equivalent to a mature implicit-GEMM or production fused-convolution implementation
 - profile-level memory traffic is still higher than native LSQ
-
-## What This Repository Demonstrates
-
-The repository is intended to document a complete technical thread rather than a single result:
-
-- integrating external quantized checkpoints into a custom inference backend
-- implementing PyTorch C++/CUDA extensions for low-bit execution
-- using profiling to identify the dominant runtime bottlenecks
-- iterating on lowering and kernel design based on measured behavior
-- validating that low-bit accuracy can be retained after operator conversion
-- retaining unsuccessful directions when they help clarify the remaining gap to native execution
-
-In that sense, the value of the project is not limited to the final numbers. It captures the engineering process required to move from a quantized checkpoint to a more hardware-aware execution path.
-
-## References in This Repo
-
-- Main report: [`docs/reports/report_lsq_cuda_cn.pdf`](/home/yph3738/projects/cuda_optimization/docs/reports/report_lsq_cuda_cn.pdf)
-- Supporting report source: [`docs/reports/report_lsq_cuda_cn.tex`](/home/yph3738/projects/cuda_optimization/docs/reports/report_lsq_cuda_cn.tex)
-- Example retained converted evaluation: [`artifacts/evals/results_lsq4_fusedconv_v1.txt`](/home/yph3738/projects/cuda_optimization/artifacts/evals/results_lsq4_fusedconv_v1.txt)
-- Example retained converted profile: [`artifacts/profiles/profile_lsq4_fusedconv_v2.txt`](/home/yph3738/projects/cuda_optimization/artifacts/profiles/profile_lsq4_fusedconv_v2.txt)
