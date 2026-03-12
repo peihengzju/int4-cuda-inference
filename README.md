@@ -1,4 +1,4 @@
-# Custom INT4 CUDA Inference Backend for Quantized CNNs
+# INT4 CUDA Inference Prototype for Quantized CNNs
 
 Profiling-driven low-bit inference project built with PyTorch C++/CUDA extensions.
 
@@ -7,7 +7,7 @@ https://github.com/peihengzju/LSQ-ImageNet-Reproduction
 
 ## TL;DR
 
-This repository asks a systems question: why do low-bit quantized models often remain slower than native FP inference? Starting from an LSQ ImageNet reproduction, it builds a custom CUDA inference backend, converts LSQ checkpoints into custom operators, and uses profiler-driven optimization to reduce the gap between quantized execution and native cuDNN inference.
+This repository asks a systems question: why do low-bit quantized models often remain slower than native FP inference? Starting from an LSQ ImageNet reproduction, it builds a custom CUDA inference prototype, converts LSQ checkpoints into custom operators, and uses profiler-driven optimization to reduce the gap between quantized execution and native cuDNN inference.
 
 ## Key Contributions
 
@@ -73,8 +73,6 @@ python -m venv .venv
 pip install -r requirements.txt
 pip install -e .
 ```
-
-If the CUDA extension build is not picked up automatically in your environment, reinstall with the usual CUDA compiler environment variables set.
 
 Sanity check:
 
